@@ -2596,13 +2596,47 @@ class AIAgent:
         return dump_api_request_debug(self, api_kwargs, reason=reason, error=error)
 
     @staticmethod
-    def _clean_session_content(content: str) -> str:
-        """Convert REASONING_SCRATCHPAD to think tags and clean up whitespace."""
+    def _clean_session_content(content):
+        """Convert REASONING_SCRATCHPAD to think tags and clean up whitespace.
+
+        Handles both plain-string content and the Anthropic-style list shape
+        where ``content`` is a list of ``{"type": "text", "text": ...}``
+        / ``{"type": "thinking", "thinking": ...}`` blocks.  Reasoning blocks
+        are dropped (same job as ``strip_think_blocks``), and the remaining
+        text parts are joined before regex cleanup.  A raw list reaching
+        ``re.sub`` raises ``TypeError: expected string or bytes-like object,
+        got 'list'`` — the same bug class fixed for ``strip_think_blocks``
+        in #296494db0.  Coerce here so every caller is safe.
+        """
         if not content:
-            return content
+            # An empty list is falsy but should return "", not [].
+            return "" if isinstance(content, list) else content
+        # Flatten list/dict content to a visible-text string.
+        if isinstance(content, list):
+            parts: list[str] = []
+            for block in content:
+                if isinstance(block, str):
+                    parts.append(block)
+                elif isinstance(block, dict):
+                    btype = str(block.get("type") or "").strip().lower()
+                    if btype in {"thinking", "reasoning", "redacted_thinking"}:
+                        continue
+                    text = block.get("text")
+                    if isinstance(text, str) and text:
+                        parts.append(text)
+            content = "".join(parts)
+        elif isinstance(content, dict):
+            # Singleton dict — extract text field if present.
+            btype = str(content.get("type") or "").strip().lower()
+            if btype in {"thinking", "reasoning", "redacted_thinking"}:
+                return ""
+            text = content.get("text")
+            content = text if isinstance(text, str) else ""
+        if not content:
+            return ""
         content = convert_scratchpad_to_think(content)
-        content = re.sub(r'\n+(<think>)', r'\n\1', content)
-        content = re.sub(r'(</think>)\n+', r'\1\n', content)
+        content = re.sub(r'\n+()', r'\n\1', content)
+        content = re.sub(r'(</think>)\\n+', r'\\1\\n', content)
         return content.strip()
 
     @staticmethod

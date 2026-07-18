@@ -665,6 +665,64 @@ class TestStripThinkBlocks:
         assert "final answer" in result
 
 
+class TestCleanSessionContent:
+    """Coerce list/dict content to string before regex in _clean_session_content.
+
+    Same bug class as strip_think_blocks: a raw list reaching re.sub raised
+    TypeError which broke session JSON snapshot writes for Anthropic models.
+    """
+
+    def test_list_content_flattened_no_crash(self, agent):
+        result = agent._clean_session_content(
+            [
+                {"type": "text", "text": "visible answer"},
+                {"type": "thinking", "thinking": "internal reasoning"},
+            ]
+        )
+        assert isinstance(result, str)
+        assert "visible answer" in result
+        assert "internal reasoning" not in result
+
+    def test_dict_content_flattened_no_crash(self, agent):
+        result = agent._clean_session_content({"type": "text", "text": "hello world"})
+        assert isinstance(result, str)
+        assert "hello world" in result
+
+    def test_list_of_only_thinking_returns_empty(self, agent):
+        assert (
+            agent._clean_session_content([{"type": "thinking", "thinking": "x"}]) == ""
+        )
+
+    def test_empty_list_returns_empty(self, agent):
+        assert agent._clean_session_content([]) == ""
+
+    def test_none_returns_none(self, agent):
+        assert agent._clean_session_content(None) is None
+
+    def test_empty_string_returns_empty(self, agent):
+        assert agent._clean_session_content("") == ""
+
+    def test_plain_string_unchanged(self, agent):
+        assert agent._clean_session_content("hello world") == "hello world"
+
+    def test_scratchpad_converted(self, agent):
+        text = "<REASONING_SCRATCHPAD>reasoning</REASONING_SCRATCHPAD> visible"
+        result = agent._clean_session_content(text)
+        assert "" in result
+        assert "</think>" in result
+        assert "visible" in result
+
+    def test_dict_reasoning_only_returns_empty(self, agent):
+        result = agent._clean_session_content({"type": "reasoning", "thinking": "x"})
+        assert result == ""
+
+    def test_list_with_mixed_types(self, agent):
+        """Lists with non-string/non-dict entries are skipped gracefully."""
+        result = agent._clean_session_content([42, "text", {"type": "text", "text": "ok"}])
+        assert isinstance(result, str)
+        assert "ok" in result
+
+
 class TestExtractReasoning:
     def test_reasoning_field(self, agent):
         msg = _mock_assistant_msg(reasoning="thinking hard")
