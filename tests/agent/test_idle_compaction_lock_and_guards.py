@@ -38,7 +38,11 @@ def _prep_idle_agent(db: SessionDB, session_id: str, *, idle_after: int = 60,
     agent = _build_agent_with_db(db, session_id)
     agent.compression_enabled = True
     agent.compression_idle_compact_after_seconds = idle_after
-    agent._last_activity_ts = time.time() - idle_gap
+    # Set the end-of-previous-turn timestamp that build_turn_context reads for
+    # the idle gap.  In the gateway path, _init_cached_agent_for_turn snapshots
+    # this from _last_activity_ts before resetting it for the watchdog timer.
+    agent._last_turn_end_ts = time.time() - idle_gap
+    agent._last_activity_ts = time.time()  # current turn (fresh after snapshot)
     # The idle block reads these from the compressor; give the MagicMock real
     # numbers so the floor computation and the preflight gate behave.
     agent.context_compressor.threshold_tokens = 100_000

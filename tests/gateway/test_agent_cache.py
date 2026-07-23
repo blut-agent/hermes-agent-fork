@@ -1606,6 +1606,49 @@ class TestCachedAgentInactivityReset:
             "Stale idle time should be cleared so the new turn gets a fresh window"
         )
 
+    def test_fresh_turn_snapshots_last_turn_end_ts(self):
+        """interrupt_depth=0: _last_turn_end_ts snapshots the previous
+        _last_activity_ts so idle-compaction can measure the gap.
+
+        Without this snapshot, _init_cached_agent_for_turn resets
+        _last_activity_ts to time.time() and build_turn_context sees a
+        near-zero gap — the idle trigger never fires (#idle-compaction-ts).
+        """
+        from gateway.run import GatewayRunner
+
+        agent = self._fake_agent(stale_seconds=1800.0)
+        old_ts = agent._last_activity_ts
+
+        with patch("gateway.run.time") as mock_time:
+            mock_time.time.return_value = _FAKE_NOW
+            GatewayRunner._init_cached_agent_for_turn(agent, interrupt_depth=0)
+
+        assert agent._last_turn_end_ts == old_ts, (
+            "_last_turn_end_ts must capture the previous _last_activity_ts "
+            "before the reset so build_turn_context can compute the idle gap"
+        )
+        assert agent._last_activity_ts == _FAKE_NOW
+        assert agent._last_turn_end_ts < agent._last_activity_ts
+
+    def test_fresh_turn_does_not_touch_last_turn_end_ts_when_no_prev(self):
+        """interrupt_depth=0 with no prior _last_activity_ts: no crash,
+        no stale value."""
+        from gateway.run import GatewayRunner
+
+        class _MinimalAgent:
+            """Object with no _last_activity_ts attribute."""
+            pass
+
+        agent = _MinimalAgent()
+        with patch("gateway.run.time") as mock_time:
+            mock_time.time.return_value = _FAKE_NOW
+            GatewayRunner._init_cached_agent_for_turn(agent, interrupt_depth=0)
+
+        assert agent._last_activity_ts == _FAKE_NOW
+        assert not hasattr(agent, "_last_turn_end_ts"), (
+            "_last_turn_end_ts should not be set when there is no previous ts"
+        )
+
     def test_fresh_turn_resets_desc(self):
         """interrupt_depth=0: description is updated to reflect the new turn."""
         from gateway.run import GatewayRunner

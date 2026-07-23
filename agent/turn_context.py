@@ -619,13 +619,20 @@ def build_turn_context(
     # history up front so the rest of the conversation does not keep re-reading
     # a large stale context on every turn. This fires on elapsed wall-clock time
     # rather than size, so it complements (does not replace) the token-threshold
-    # preflight below. ``_last_activity_ts`` is the last time this turn loop did
-    # work; nothing has touched it yet this turn, so it measures the gap since
-    # the previous turn finished. The cheap gap pre-check gates the (more
-    # expensive) token estimate, mirroring ``_should_run_preflight_estimate``.
+    # preflight below.  The gap is measured from ``_last_turn_end_ts`` — the
+    # timestamp the gateway snapshots before resetting ``_last_activity_ts``
+    # for the watchdog timer.  Using ``_last_activity_ts`` directly would yield
+    # a near-zero gap because the gateway resets it to ``time.time()`` at the
+    # start of every depth-0 turn (``_init_cached_agent_for_turn``), defeating
+    # the idle trigger entirely.  Falls back to ``_last_activity_ts`` for the
+    # CLI path where ``_init_cached_agent_for_turn`` never runs.
     _idle_after = getattr(agent, "compression_idle_compact_after_seconds", 0)
     if agent.compression_enabled and _idle_after > 0 and messages:
-        _idle_gap = time.time() - getattr(agent, "_last_activity_ts", time.time())
+        _ts_for_gap = getattr(
+            agent, "_last_turn_end_ts",
+            getattr(agent, "_last_activity_ts", time.time()),
+        )
+        _idle_gap = time.time() - _ts_for_gap
         if _idle_gap >= _idle_after:
             _compressor = agent.context_compressor
             _idle_tokens = estimate_request_tokens_rough(

@@ -18552,6 +18552,13 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         turn makes its first API call (#9051).
         """
         if interrupt_depth == 0:
+            # Snapshot the end-of-previous-turn timestamp before resetting.
+            # ``build_turn_context`` reads ``_last_turn_end_ts`` to compute the
+            # idle gap for idle-triggered compaction — it needs the timestamp of
+            # when the *previous* turn finished, not when this turn started.
+            prev = getattr(agent, "_last_activity_ts", None)
+            if prev is not None:
+                agent._last_turn_end_ts = prev
             agent._last_activity_ts = time.time()
             agent._last_activity_desc = "starting new turn (cached)"
             # Reset the SessionDB flush cursor so the new turn's messages are
