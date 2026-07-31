@@ -88,7 +88,16 @@ def _scan_memory_content(content: str) -> Optional[str]:
     return _first_threat_message(content, scope="strict")
 
 
-def _drift_error(path: "Path", bak_path: str) -> Dict[str, Any]:
+_BACKUP_FAILED = object()
+"""Sentinel returned by :meth:`_detect_external_drift` when drift was detected
+but the backup snapshot could not be written.  Callers must still abort the
+mutation (the on-disk content is drift-shaped), but the error message must
+NOT claim a snapshot was saved.  Follows the same sentinel-as-object pattern
+as ``_READ_FAILED`` below.
+"""
+
+
+def _drift_error(path: "Path", bak_path: "str | object") -> Dict[str, Any]:
     """Build the error dict returned when external drift is detected.
 
     The on-disk memory file contains content that wouldn't round-trip
@@ -96,7 +105,31 @@ def _drift_error(path: "Path", bak_path: str) -> Dict[str, Any]:
     appended/edited content from a patch tool, shell append, manual edit,
     or sister-session write. We refuse the mutation, point the operator at
     the .bak.<ts> snapshot we took, and tell them what to do next.
+
+    *bak_path* is either the backup file path (str) when the snapshot
+    succeeded, or ``_BACKUP_FAILED`` when the backup write failed.
     """
+    if bak_path is _BACKUP_FAILED:
+        return {
+            "success": False,
+            "error": (
+                f"Refusing to write {path.name}: file on disk has content that "
+                f"wouldn't round-trip through the memory tool (likely added by "
+                f"the patch tool, a shell append, a manual edit, or a "
+                f"concurrent session). Backup of the original file failed — "
+                f"the on-disk content is unchanged. Resolve the drift first "
+                f"by examining the file directly, then retry. This guard "
+                f"exists to prevent silent data loss (issue #26045)."
+            ),
+            "drift_backup": None,
+            "remediation": (
+                "The backup could not be saved. Examine the file directly "
+                "(it is unchanged on disk) to identify the extra content, "
+                "integrate it into the memory tool one at a time via "
+                "memory(action=add, content=...), then remove or rewrite the "
+                "original file to a clean §-delimited list of entries."
+            ),
+        }
     return {
         "success": False,
         "error": (
@@ -804,7 +837,7 @@ class MemoryStore:
         """
         return MemoryStore._read_entries_checked(path)[0]
 
-    def _detect_external_drift(self, target: str, raw: str) -> Optional[str]:
+    def _detect_external_drift(self, target: str, raw: str) -> "str | object | None":
         """Return a backup-path string if on-disk content shows external drift.
 
         *raw* is the file content already read by the caller's checked read
@@ -830,7 +863,9 @@ class MemoryStore:
            content, discarding the appended bytes — issue #26045.
 
         Returns the absolute path of the .bak file when drift was found and
-        backed up; returns None when the file looks tool-shaped.
+        backed up; ``_BACKUP_FAILED`` sentinel when drift was found but the
+        backup write failed (callers must still abort the mutation); returns
+        None when the file looks tool-shaped.
 
         Note: this is an INSTANCE method (not static) because we need the
         per-target char_limit for signal #2.
@@ -857,7 +892,10 @@ class MemoryStore:
         try:
             bak_path.write_text(raw, encoding="utf-8")
         except (OSError, IOError):
-            return str(bak_path) + " (BACKUP FAILED — file unchanged on disk)"
+            logger.warning(
+                "Drift backup failed for %s — file unchanged on disk", path,
+            )
+            return _BACKUP_FAILED
         return str(bak_path)
 
     @staticmethod

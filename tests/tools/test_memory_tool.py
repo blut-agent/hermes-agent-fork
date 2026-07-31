@@ -828,6 +828,41 @@ class TestExternalDriftGuard:
         assert ".bak." in r1["drift_backup"]
         assert ".bak." in r2["drift_backup"]
 
+    def test_drift_backup_failed_returns_sentinel(self, store, monkeypatch):
+        """When backup write fails, error must NOT claim a snapshot was saved.
+
+        Regression: _detect_external_drift used to return a malformed string
+        (path + " (BACKUP FAILED — ...)") when the backup write raised OSError.
+        _drift_error then interpolated that into "A snapshot was saved to ..."
+        — lying to the user and setting drift_backup to a non-existent path.
+        Now _detect_external_drift returns the _BACKUP_FAILED sentinel and
+        _drift_error produces an honest error message with drift_backup=None.
+        """
+        from tools.memory_tool import _BACKUP_FAILED
+
+        store.add("memory", "Existing entry.")
+        self._plant_drift(store)
+
+        # Make the backup write fail by making Path.write_text raise
+        _real_write_text = type(store._path_for("memory")).write_text
+
+        def _fail_write(self, *a, **kw):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(
+            type(store._path_for("memory")), "write_text", _fail_write,
+        )
+
+        result = store.replace("memory", "Existing entry", "Replacement.")
+        assert result["success"] is False
+        # Must NOT claim a snapshot was saved
+        assert "snapshot was saved" not in result["error"]
+        assert "Backup" in result["error"] or "backup" in result["error"]
+        # drift_backup must be None (no valid path)
+        assert result["drift_backup"] is None
+        # On-disk file is UNTOUCHED
+        assert "Vendor Master" in store._path_for("memory").read_text()
+
 
 class TestUnreadableFileDoesNotWipeMemory:
     """A file that exists but can't be read must NOT be treated as empty.
