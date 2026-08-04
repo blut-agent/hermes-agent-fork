@@ -1069,3 +1069,84 @@ class TestJobsJsonUtf8Bom:
         assert [j["id"] for j in loaded] == ["plainjob01"]
 
 
+class TestManualTriggerProximity:
+    """Regression tests for #78516 — dashboard "Run now" swallowed by migration repair."""
+
+    def test_trigger_not_swallowed_when_within_proximity(self, tmp_cron_dir):
+        """trigger_job() sets next_run_at to now; migration repair must not
+        recompute it away when the offset mismatch is just from the trigger
+        itself (within 60s of now)."""
+        from cron.jobs import (
+            _get_due_jobs_locked,
+            _jobs_lock,
+            create_job,
+            load_jobs,
+            save_jobs,
+        )
+        from hermes_time import now as _hermes_now
+
+        job = create_job(
+            prompt="test",
+            schedule="0 8 * * *",
+        )
+        # Simulate trigger_job: set next_run_at to "now" with a deliberately
+        # different offset (e.g. UTC) so the offset-mismatch check fires.
+        from datetime import datetime, timezone, timedelta
+
+        trigger_now = _hermes_now()
+        # Force a UTC timestamp to simulate the bug scenario
+        utc_now = datetime.now(timezone.utc)
+        with _jobs_lock():
+            jobs = load_jobs()
+            for j in jobs:
+                if j["id"] == job["id"]:
+                    j["next_run_at"] = utc_now.isoformat()
+            save_jobs(jobs)
+
+        # _get_due_jobs_locked must NOT skip this job via the migration repair
+        # branch because next_run_dt is within 60s of now (a manual trigger).
+        due = _get_due_jobs_locked()
+        due_ids = {j["id"] for j in due}
+        assert job["id"] in due_ids
+
+    def test_trigger_swallowed_when_stale(self, tmp_cron_dir):
+        """If next_run_at is genuinely stale (>60s ago) with an offset
+        mismatch AND the stored wall-clock is in the future, the migration
+        repair SHOULD recompute it (normal TZ-migration case)."""
+        from cron.jobs import (
+            _get_due_jobs_locked,
+            _jobs_lock,
+            create_job,
+            load_jobs,
+            save_jobs,
+        )
+        from hermes_time import now as _hermes_now
+        from datetime import datetime, timezone, timedelta
+
+        job = create_job(
+            prompt="test",
+            schedule="0 8 * * *",
+        )
+        # Set next_run_at to 2 hours ago with UTC offset.
+        # We also set the stored wall-clock to be in the future by choosing
+        # a time whose wall-clock (when converted to the target TZ) is ahead
+        # of now. Using 22:00 UTC = 19:00 BRT — if now is before 19:00 BRT,
+        # the wall-clock is in the future.
+        old_time = datetime(2026, 8, 4, 22, 0, 0, tzinfo=timezone.utc)
+        with _jobs_lock():
+            jobs = load_jobs()
+            for j in jobs:
+                if j["id"] == job["id"]:
+                    j["next_run_at"] = old_time.isoformat()
+            save_jobs(jobs)
+
+        # The migration repair should recompute next_run_at because:
+        # 1. next_run_dt <= now (it's 2h old)
+        # 2. offset mismatch (UTC vs configured TZ)
+        # 3. wall-clock is still in the future (22:00 UTC = 19:00 BRT)
+        # After recompute, the job should NOT be due (next_run_at moves forward).
+        due = _get_due_jobs_locked()
+        due_ids = {j["id"] for j in due}
+        # The job is NOT due because the migration repair recomputed its
+        # next_run_at to the next cron occurrence (which is in the future).
+        assert job["id"] not in due_ids
