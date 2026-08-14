@@ -152,6 +152,15 @@ class TestProxyEnvironmentDnsDelegation:
         ("https://sub.multimedia.nt.qq.com.cn/download?id=123", False),
         # ... and requires https
         ("http://multimedia.nt.qq.com.cn/download?id=123", False),
+        # QQ OAuth token endpoint (fake-IP networks resolve this to 198.18.0.0/15)
+        ("https://bots.qq.com/app/getAppAccessToken", True),
+        # QQ gateway/REST API base
+        ("https://api.sgroup.qq.com/gateway", True),
+        # exact-host match — sibling/attacker subdomains stay blocked
+        ("https://evil.bots.qq.com/app/getAppAccessToken", False),
+        ("https://api.sgroup.qq.com.evil.example/gateway", False),
+        # requires https even for trusted hosts
+        ("http://bots.qq.com/app/getAppAccessToken", False),
     ])
     def test_qq_multimedia_hostname_exception(self, url, expected):
         with _resolves_to("198.18.0.23"):

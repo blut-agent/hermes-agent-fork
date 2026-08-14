@@ -195,10 +195,15 @@ _ALWAYS_BLOCKED_NETWORKS = (
 )
 
 # Exact HTTPS hostnames allowed to resolve to private/benchmark-space IPs.
-# This is intentionally narrow: QQ media downloads can legitimately resolve
-# to 198.18.0.0/15 behind local proxy/benchmark infrastructure.
+# This is intentionally narrow: QQ Bot traffic can legitimately resolve to
+# 198.18.0.0/15 behind local proxy/benchmark infrastructure (mainland-China
+# DNS fake-IP setups).  The token endpoint, gateway REST API, and media
+# downloads are all QQ-owned hosts reached over HTTPS, so they are the only
+# ones allowlisted.
 _TRUSTED_PRIVATE_IP_HOSTS = frozenset({
-    "multimedia.nt.qq.com.cn",
+    "multimedia.nt.qq.com.cn",  # QQ media downloads
+    "bots.qq.com",              # QQ OAuth token endpoint
+    "api.sgroup.qq.com",        # QQ gateway URL + REST API
 })
 
 _MAX_SSRF_CONNECT_IPS = 8
