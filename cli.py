@@ -12543,7 +12543,8 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
         try:
             cfg = load_config() or {}
             goals_cfg = cfg.get("goals") or {}
-            max_turns = int(goals_cfg.get("max_turns", 20) or 20)
+            raw = goals_cfg.get("max_turns", 20)
+            max_turns = int(raw) if raw is not None else 20
         except Exception:
             max_turns = 20
 
