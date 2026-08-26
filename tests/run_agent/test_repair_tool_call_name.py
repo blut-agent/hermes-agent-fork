@@ -12,9 +12,9 @@ falls back to fuzzy match.
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
-
 
 VALID = {
     "todo",
@@ -43,16 +43,11 @@ def repair():
     stub = SimpleNamespace(valid_tool_names=VALID)
     return AIAgent._repair_tool_call.__get__(stub, AIAgent)
 
-
 class TestExistingBehaviorStillWorks:
     """Pre-existing repairs must keep working (no regressions)."""
 
     def test_lowercase_already_matches(self, repair):
         assert repair("browser_click") == "browser_click"
-
-
-
-
 
 
 
@@ -64,12 +59,6 @@ class TestClassLikeEmissions:
 
 
 
-
-
-
-
-
-
 class TestEdgeCases:
     """Edge inputs that must not crash or produce surprising results."""
 
@@ -78,14 +67,11 @@ class TestEdgeCases:
 
 
 
-
-
 class TestVolcEngineXmlPollution:
     """Regression coverage for #33007 — VolcEngine ``api/plan`` endpoint
     leaks raw XML attribute fragments into ``tool_use.name``.
 
     Observed in production with the ``anthropic_messages`` API mode:
-
         terminal" parameter="command" string="true
         execute_code" parameter="code" string="true
         session_search" parameter="session_id" string="true
@@ -100,12 +86,9 @@ class TestVolcEngineXmlPollution:
         assert repair(polluted) == "terminal"
 
 
-
-
     def test_tool_name_with_trailing_quote_only(self, repair):
         # Minimal leak — just a stray trailing quote, no full attribute.
         assert repair('terminal"') == "terminal"
-
 
 
     def test_clean_tool_name_unaffected_by_sanitizer(self, repair):
@@ -115,9 +98,8 @@ class TestVolcEngineXmlPollution:
 
     def test_space_separated_name_still_normalizes(self, repair):
         # Critical: the XML strip must NOT consume whitespace, or the
-        # legitimate ``"write file" -> write_file`` repair path breaks.
+        # legitimate "write file" -> write_file repair path breaks.
         assert repair("write file") == "write_file"
-
 
     def test_leading_quote_falls_through_to_fuzzy_match(self, repair):
         # Sanitizer only trims when the XML char is at idx > 0 — a
@@ -125,3 +107,44 @@ class TestVolcEngineXmlPollution:
         # rest of the pipeline (fuzzy match at 0.7 cutoff) can still
         # recover the obvious target.
         assert repair('"terminal"') == "terminal"
+
+
+class TestGatedToolNotFuzzyRemapped:
+    """Regression coverage for #94506 — check_fn-gated tools must not be
+    fuzzy-matched onto a sibling tool. A gated tool (e.g. kanban_list
+    hidden from kanban workers) is a real tool that's unavailable this
+    turn; fuzzy-matching it onto a different tool (kanban_link) silently
+    remaps a read onto a write.
+    """
+
+    @pytest.fixture
+    def repair_gated(self):
+        """Repair stub where kanban_list is gated (not in valid_tool_names)
+        but exists in the full registry alongside kanban_link.
+        """
+        from run_agent import AIAgent
+
+        # kanban_list is gated — absent from valid_tool_names
+        valid_without_gated = {"kanban_link", "kanban_complete", "web_search"}
+        stub = SimpleNamespace(valid_tool_names=valid_without_gated)
+
+        # The full registry contains both kanban_list and kanban_link
+        all_names = ["kanban_link", "kanban_list", "kanban_complete", "web_search"]
+
+        with patch("tools.registry.registry.get_all_tool_names", return_value=all_names):
+            yield AIAgent._repair_tool_call.__get__(stub, AIAgent)
+
+    def test_gated_tool_returns_none_not_sibling(self, repair_gated):
+        # kanban_list is a real tool gated by check_fn — must NOT
+        # fuzzy-match to kanban_link (which is close at cutoff=0.7).
+        assert repair_gated("kanban_list") is None
+
+    def test_gated_tool_camel_case_returns_none(self, repair_gated):
+        # CamelCase variant of a gated tool also must not remap.
+        assert repair_gated("KanbanList") is None
+
+    def test_truly_unknown_tool_still_fuzzy_matches(self, repair_gated):
+        # A completely unknown name can still fuzzy-match to a valid tool.
+        # "kanban_link" is close enough to "kanban_lnk" (typo).
+        result = repair_gated("kanban_lnk")
+        assert result == "kanban_link"

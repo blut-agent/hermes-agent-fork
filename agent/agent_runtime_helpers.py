@@ -3572,7 +3572,17 @@ def repair_tool_call(agent, tool_name: str) -> str | None:
         if c and c in agent.valid_tool_names:
             return c
 
-    # Fuzzy match as last resort.
+    # Fuzzy match as last resort — but first check whether the tool is a
+    # real tool that's gated by check_fn this turn. Fuzzy-matching a gated
+    # tool onto a sibling (e.g. kanban_list → kanban_link) silently remaps
+    # a read onto a write. See #94506.
+    from tools.registry import registry
+
+    all_registered = set(registry.get_all_tool_names())
+    for candidate in (lowered, normalized, _camel_snake(tool_name)):
+        if candidate in all_registered:
+            return None  # real tool, gated — do not substitute a sibling
+
     matches = get_close_matches(lowered, agent.valid_tool_names, n=1, cutoff=0.7)
     if matches:
         return matches[0]
