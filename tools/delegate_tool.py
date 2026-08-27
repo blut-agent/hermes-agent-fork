@@ -3049,6 +3049,16 @@ def _run_single_child(
 
         if interrupted:
             status = "interrupted"
+        elif (
+            isinstance(_output_schema, dict)
+            and _schema_valid is False
+        ):
+            # Schema-constrained delegation failed validation even after
+            # the allowed retry — fail closed so automated consumers never
+            # treat a non-conforming response as successfully completed
+            # (#96355).  The summary is still kept (the parent may want the
+            # text for diagnostics), but the structured contract was not met.
+            status = "failed"
         elif summary and not _empty_sentinel:
             # A summary means the subagent produced usable output.
             # exit_reason ("completed" vs "max_iterations") already
