@@ -664,7 +664,13 @@ export function preprocessMarkdown(text: string): string {
       return leading + transformed + trailing
     })
     .join('')
-    .replace(/[ \t]+\n/g, '\n')
+    // Preserve Markdown hard breaks (≥2 spaces before newline) while stripping
+    // ordinary trailing whitespace.  Two spaces before \n encode a hard break
+    // in CommonMark (issue #97117).  Normalize 3+ spaces to exactly 2, then
+    // strip single trailing spaces/tabs.
+    .replace(/[ \t]{3,}\n/g, '  \n')
+    .replace(/(?<=[^ \t])[ \t]\n/g, '\n')
+    .replace(/^[ \t]\n/gm, '\n')
 }
 
 /**

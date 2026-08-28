@@ -390,4 +390,27 @@ describe('preprocessMarkdown', () => {
 
     expect(output).toContain('\\sqrt[3]{8}')
   })
+
+  it('preserves two-space Markdown hard breaks', () => {
+    const input = 'First line  \nSecond line'
+    const output = preprocessMarkdown(input)
+
+    // Two spaces before \n encode a hard break in CommonMark (#97117)
+    expect(output).toContain('First line  \nSecond line')
+  })
+
+  it('strips single trailing spaces before newlines', () => {
+    const input = 'Trailing space \nNext line'
+    const output = preprocessMarkdown(input)
+
+    expect(output).not.toContain('Trailing space \n')
+    expect(output).toContain('Trailing space\nNext line')
+  })
+
+  it('normalizes excess trailing spaces before newline to exactly two', () => {
+    const input = 'Line with extra    \nNext line'
+    const output = preprocessMarkdown(input)
+
+    expect(output).toContain('Line with extra  \nNext line')
+  })
 })
