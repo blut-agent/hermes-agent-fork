@@ -225,3 +225,43 @@ class TestProviderShutdown:
         assert provider._store is None
         assert MemoryStore._shared == {}
 
+
+class TestExtractEntities:
+    """Verify _extract_entities handles single-word proper nouns (#97493)."""
+
+    def test_single_word_proper_noun(self, db_path):
+        store = MemoryStore(db_path)
+        try:
+            assert store._extract_entities("Michael prefers dark roast coffee.") == ["Michael"]
+        finally:
+            store.close()
+
+    def test_multi_word_names_still_work(self, db_path):
+        store = MemoryStore(db_path)
+        try:
+            assert store._extract_entities("Michael Jones prefers dark roast coffee.") == ["Michael Jones"]
+        finally:
+            store.close()
+
+    def test_single_word_with_quoted(self, db_path):
+        store = MemoryStore(db_path)
+        try:
+            assert store._extract_entities('Michael prefers "Obsidian" for notes.') == ["Michael", "Obsidian"]
+        finally:
+            store.close()
+
+    def test_no_false_positives_on_pronouns(self, db_path):
+        store = MemoryStore(db_path)
+        try:
+            assert store._extract_entities("I love coffee.") == []
+        finally:
+            store.close()
+
+    def test_deduplication(self, db_path):
+        store = MemoryStore(db_path)
+        try:
+            result = store._extract_entities("Michael likes coffee. Michael prefers tea.")
+            assert result == ["Michael"]
+        finally:
+            store.close()
+

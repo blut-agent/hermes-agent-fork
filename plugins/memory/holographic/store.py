@@ -83,7 +83,7 @@ _TRUST_MIN       =  0.0
 _TRUST_MAX       =  1.0
 
 # Entity extraction patterns
-_RE_CAPITALIZED  = re.compile(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b')
+_RE_CAPITALIZED  = re.compile(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b')
 _RE_DOUBLE_QUOTE = re.compile(r'"([^"]+)"')
 _RE_SINGLE_QUOTE = re.compile(r"'([^']+)'")
 _RE_AKA          = re.compile(
@@ -449,10 +449,10 @@ class MemoryStore:
         """Extract entity candidates from text using simple regex rules.
 
         Rules applied (in order):
-        1. Capitalized multi-word phrases  e.g. "John Doe"
-        2. Double-quoted terms             e.g. "Python"
-        3. Single-quoted terms             e.g. 'pytest'
-        4. AKA patterns                    e.g. "Guido aka BDFL" -> two entities
+        1. Capitalized words/phrases   e.g. "Michael", "John Doe"
+        2. Double-quoted terms         e.g. "Python"
+        3. Single-quoted terms         e.g. 'pytest'
+        4. AKA patterns                e.g. "Guido aka BDFL" -> two entities
 
         Returns a deduplicated list preserving first-seen order.
         """
