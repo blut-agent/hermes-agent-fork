@@ -13,7 +13,6 @@ broad and declarative. Skills are narrow and actionable.
 
 Actions:
   create     -- Create a new skill (SKILL.md + directory structure)
-  edit       -- Replace the SKILL.md content of a user skill (full rewrite)
   patch      -- Targeted find-and-replace within SKILL.md or any supporting file
   delete     -- Remove a user skill entirely
   write_file -- Add/overwrite a supporting file (reference, template, script, asset)
@@ -1675,7 +1674,7 @@ def skill_manage(
         result = _remove_file(name, file_path)
 
     else:
-        result = {"success": False, "error": f"Unknown action '{action}'. Use: create, edit, patch, delete, write_file, remove_file"}
+        result = {"success": False, "error": f"Unknown action '{action}'. Use: create, patch, delete, write_file, remove_file"}
 
     if result.get("success"):
         # Audit ledger append (best-effort; never blocks the mutation).
