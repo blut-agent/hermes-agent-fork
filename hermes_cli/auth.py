@@ -1987,6 +1987,13 @@ def _heal_forked_single_use_oauth_grants(provider_id: str) -> Optional[Dict[str,
         if real_home_env and _same_path(root_path, Path(real_home_env) / ".hermes" / "auth.json"):
             return None
     profile_path = _auth_file_path()
+    # When the profile's auth.json is a symlink to the root auth.json
+    # (shared-credential setups), both stores are the same file.  The heal
+    # logic loads each side independently and would interpret the identical
+    # data as "profile has a copy, root has a copy" — then strip the
+    # credential from the shared file.  Short-circuit: nothing to heal.
+    if _same_path(profile_path, root_path):
+        return None
     profile_home = profile_path.parent
     root_home = root_path.parent
     profile_singleton = profile_home / ".anthropic_oauth.json" if provider_id == "anthropic" else None

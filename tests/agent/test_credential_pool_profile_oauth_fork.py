@@ -450,3 +450,68 @@ def test_heal_is_a_noop_in_classic_mode(fleet):
     before = (fleet["root"] / "auth.json").read_text()
     assert heal_forked_single_use_oauth_grants("anthropic") is None
     assert (fleet["root"] / "auth.json").read_text() == before
+
+
+# ── Regression: #101356 — symlinked auth.json must not be treated as a fork ─
+
+def test_heal_skips_when_profile_auth_json_symlinks_to_root(fleet):
+    """When a named profile's auth.json is a symlink to the root auth.json
+    (shared-credential setup), the heal must be a no-op.  Previously it loaded
+    the same file twice, treated the identical data as two copies, and stripped
+    the credential from the shared store."""
+    import logging
+    from pathlib import Path
+
+    from hermes_cli.auth import heal_forked_single_use_oauth_grants
+
+    root = fleet["root"]
+    root_auth = root / "auth.json"
+    # Create a named profile directory and symlink its auth.json to root.
+    profile_dir = root / "profiles" / "shared-profile"
+    profile_dir.mkdir(parents=True)
+    (profile_dir / "auth.json").symlink_to(root_auth)
+    # Also symlink .anthropic_oauth.json if present, to cover the singleton path.
+    singleton = root / ".anthropic_oauth.json"
+    if singleton.exists():
+        (profile_dir / ".anthropic_oauth.json").symlink_to(singleton)
+
+    before = root_auth.read_text()
+    fleet["use"](profile_dir)
+    # Suppress the DEBUG log line that the heal normally emits on skip.
+    saved_level = logging.getLogger().level
+    logging.disable(logging.CRITICAL)
+    try:
+        result = heal_forked_single_use_oauth_grants("anthropic")
+    finally:
+        logging.disable(saved_level)
+
+    assert result is None, f"heal should be None for symlinked auth, got {result}"
+    assert root_auth.read_text() == before, "root auth.json was modified despite symlink"
+
+
+def test_heal_strips_credential_when_profile_auth_json_is_separate_copy(fleet):
+    """Ensure the heal still works when profile and root are separate files
+    (the normal fork case).  This guards against the symlink guard being too
+    broad."""
+    from pathlib import Path
+
+    from hermes_cli.auth import heal_forked_single_use_oauth_grants
+
+    root = fleet["root"]
+    root_auth = root / "auth.json"
+    # Create a named profile with a regular (non-symlinked) auth.json
+    # that contains the same credential as root (a fork).
+    profile_dir = root / "profiles" / "forked-profile"
+    profile_dir.mkdir(parents=True)
+    profile_store = json.loads(root_auth.read_text())
+    (profile_dir / "auth.json").write_text(json.dumps(profile_store))
+
+    fleet["use"](profile_dir)
+    result = heal_forked_single_use_oauth_grants("anthropic")
+    # The heal should have done work (stripped the profile's copy)
+    assert result is not None, "heal should have found a fork to consolidate"
+    assert len(result["stripped_ids"]) > 0
+    # The profile's auth.json should no longer contain the anthropic grant
+    p_store = json.loads((profile_dir / "auth.json").read_text())
+    assert "anthropic" not in p_store.get("credential_pool", {}), \
+        "profile's anthropic grant should have been stripped"
