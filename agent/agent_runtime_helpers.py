@@ -1191,6 +1191,15 @@ def restore_primary_runtime(agent) -> bool:
         return True
     except Exception as e:
         logger.warning("Failed to restore primary runtime: %s", e)
+        # The mid-turn fallback walk already advanced _fallback_index past the entries
+        # it consumed. A failed rebuild must not strand the index there: every later
+        # failure would resume past the healthy early chain entries for the rest of
+        # the session (#102860). Reset so the next walk starts from the top — the
+        # same-backend skip guard in try_activate_fallback() keeps it from
+        # re-activating the provider that just failed. The gated paths above
+        # (rate-limit cooldown / pool reset) intentionally do NOT reset: staying
+        # gated is what prevents the #24996 cross-turn chain-replay storm.
+        agent._fallback_index = 0
         return False
 
 
