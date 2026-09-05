@@ -647,7 +647,9 @@ class CLIAgentSetupMixin:
         # Count only user-originated turns: legacy compaction handoffs are durable
         # role=user rows without display_kind.
         msg_count = len([m for m in self._resume_display_history if is_user_originated_turn(m)])
-        title_part = f' "{session_meta["title"]}"' if session_meta.get("title") else ""
+        # The title is DB content (slash commands, pasted logs): escaping is load-bearing — a
+        # literal "[/plan — plan mode]" closes this Rich block and raises MarkupError (#103602).
+        title_part = f' "{_escape(session_meta["title"])}"' if session_meta.get("title") else ""
         self._console_print(
             f"[{accent_color}]↻ Resumed session [bold]{self.session_id}[/bold]"
             f"{title_part} "
