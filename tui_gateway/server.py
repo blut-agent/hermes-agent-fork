@@ -734,6 +734,14 @@ def handle_request(req: dict) -> dict | None:
     token = _current_rpc_method.set(method)
     try:
         return fn(rid, params)
+    except Exception as exc:
+        # An inline handler must never let an exception escape into the caller: entry.py's stdio
+        # reader loop calls dispatch() unguarded, so e.g. _profile_home()'s fail-closed
+        # FileNotFoundError for an unknown profile (#session-kill on 026e3e84ea) would end the
+        # whole TUI/desktop backend instead of returning an error frame. The pool path already
+        # converts handler exceptions (dispatch()'s run()); mirror it here.
+        logger.exception("inline handler %s crashed", method)
+        return _err(rid, -32000, f"handler error: {exc}")
     finally:
         _current_rpc_method.reset(token)
 
