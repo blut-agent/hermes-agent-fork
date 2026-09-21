@@ -864,8 +864,7 @@ export function useSessionActions({
             requestedProfile,
             options?.route === null || defaultTarget?.route === null,
             workspaceScope.workspaceMode !== 'bots'
-          )),
-          ...(workspaceScope.workspaceMode === 'bots' ? { hidden: true } : {})
+          ))
         }
 
         // Same lease chain as createBackendSessionForSend: owner socket held
